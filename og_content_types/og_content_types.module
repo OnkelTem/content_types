@@ -1,0 +1,141 @@
+<?php
+// $Id$
+
+/**
+ * Implements hook_help().
+ */
+function og_content_types_help($path, $arg) {
+  switch ($path) {
+    case 'admin/help#og_content_types':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('Module description.');
+      return $output;
+  }
+}
+
+/**
+ * Implement hook_menu().
+ */
+function og_content_types_menu() {
+  $items = array();
+
+  $items['admin/config/group/content_types'] = array(
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('og_content_types_admin_form'),
+    'title' => 'Group content types',
+    'access arguments' => array('administer group'),
+    'description' => 'Configure content type fields for groups.',
+    'file' => 'og_content_types.admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implement hook_form_alter().
+ */
+function og_content_types_form_alter(&$form, &$form_state, $form_id) {
+  if (isset($form['#node']) && $form['#node']->type . '_node_form' == $form_id
+    && og_is_group_content_type('node', $form['#node']->type)) {
+
+    $field =& $form['group_audience'][$form['group_audience']['#language']];
+
+    foreach ($field['#options'] as $gid => $option) {
+      if (is_array($option)) {
+        foreach ($option as $sub_gid => $sub_option) {
+          if (!og_content_types_group_node($sub_gid, $form['#node']->type)) {
+            unset($field['#options'][$gid][$sub_gid]);
+          }
+        }
+      }
+      else if (is_int($gid)) {
+        if (!og_content_types_group_node($gid, $form['#node']->type)) {
+          unset($field['#options'][$gid]);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Check if target type of node could be related to certain group
+ */
+function og_content_types_group_node($gid, $content_type) {
+  // try to get node id from group id
+  if ($node = db_query_range(implode(' ', array(
+    'SELECT n.nid, n.type FROM {og} o, {node} n',
+    'WHERE n.nid = o.etid AND o.gid = :gid'
+  )), 0, 1, array(':gid' => $gid))->fetchObject()) {
+    // try to get field name
+    if ($field = variable_get('og_content_types_'. $node->type, 0)) {
+      // if node type could be created under this group return TRUE
+      return db_query(implode(' ', array(
+        'SELECT COUNT(*) FROM {field_data_'. $field .'}',
+        'WHERE entity_id = :nid AND '. $field .'_value = :type'
+      )), array(
+        ':nid' => $node->nid, ':type' => $content_type,
+      ))->fetchField()
+        ? TRUE
+        : FALSE;
+    }
+  }
+  // FALSE :-|
+  return TRUE;
+}
+
+/**
+ * Alter the data being saved to the {menu_router} table after hook_menu is invoked.
+ *
+ * This hook is invoked by menu_router_build(). The menu definitions are passed
+ * in by reference. Each element of the $items array is one item returned
+ * by a module from hook_menu. Additional items may be added, or existing items
+ * altered.
+ *
+ * @param $items
+ *   Associative array of menu router definitions returned from hook_menu().
+ */
+function og_content_types_menu_alter(&$items) {
+  // init router items
+  $router_items = array();
+  foreach (node_type_get_types() as $type) {
+    $path = 'node/add/'. str_replace('_', '-', $type->type);
+    if (isset($items[$path])) {
+      $arguments = isset($items[$path]['access arguments']) ? $items[$path]['access arguments'] : array();
+      $arguments[] = isset($items[$path]['access callback']) ? $items[$path]['access callback'] : NULL;
+      $items[$path]['access callback'] = 'og_content_types_menu_access';
+      $items[$path]['access arguments'] = $arguments;
+    }
+  }
+}
+
+/**
+ * Spaces menu access callback. Allows space types to manage access as
+ * related to their space workflow. See hook_menu_alter() for how
+ * menu access callbacks / arguments get passed.
+ */
+function og_content_types_menu_access() {
+  global $user;
+  // Run the standard Drupal access check.
+  $args = func_get_args();
+  $access_callback = array_pop($args);
+  $node_type = str_replace('-', '_', $args[1]);
+
+  if (empty($access_callback) || call_user_func_array($access_callback, $args)) {
+    if (og_is_group_content_type('node', $node_type) && $groups = db_query(implode(' ', array(
+      "SELECT og.*",
+      "FROM {og} og, {field_data_group_audience} ga",
+      "WHERE ga.group_audience_gid = og.gid",
+      "AND ga.entity_type = 'user'",
+      "AND ga.entity_id = :uid",
+    )), array(':uid' => $user->uid))) {
+      foreach ($groups as $group) {
+        if (og_content_types_group_node($group->gid, $node_type)) {
+          return TRUE;
+        }
+      }
+    }
+    return TRUE;
+  }
+  return FALSE;
+}

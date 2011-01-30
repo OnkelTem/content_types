@@ -1,0 +1,9 @@
+; $Id$
+
+name = Organic groups content types
+description = Module description.
+package = "Organic groups"
+core = 7.x
+
+dependencies[] = og
+dependencies[] = field_content_types

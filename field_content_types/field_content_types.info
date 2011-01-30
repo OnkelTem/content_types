@@ -1,0 +1,5 @@
+; $Id$
+
+name = Field content types
+package = Fields
+core = 7.x

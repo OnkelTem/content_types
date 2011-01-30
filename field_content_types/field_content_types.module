@@ -1,0 +1,589 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * Module Description.
+ */
+
+/**
+ * Implements hook_field_info().
+ */
+function field_content_types_field_info() {
+  return array(
+    'field_content_types' => array(
+      'label' => t('Content Types'),
+      'settings' => array('available_values' => array(), 'fixed_values' => array()),
+      'default_widget' => 'widget_content_types',
+      'default_formatter' => 'field_content_types_default',
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_settings_form().
+ */
+function field_content_types_field_settings_form($field, $instance, $has_data) {
+
+  drupal_add_js('jQuery(document).ready(function(){
+    var field_content_types_validate = function() {
+      var name = jQuery(this).val();
+      if (jQuery(this).attr("checked")) {
+        jQuery(".form-item-field-settings-fixed-values-"+ name).show();
+      } else {
+        jQuery(".form-item-field-settings-fixed-values-"+ name).hide();
+        jQuery(".form-item-field-settings-fixed-values-"+ name +" input:checkbox").attr("checked", false);
+      }
+      if (jQuery(".form-item-field-settings-available-values input:checked").length == 0) {
+        jQuery(".form-item-field-settings-fixed-values").hide();
+      } else {
+        jQuery(".form-item-field-settings-fixed-values").show();
+      }
+    }
+    jQuery(".form-item-field-settings-available-values input:checkbox")
+      .each(field_content_types_validate)
+      .change(field_content_types_validate);
+  });', 'inline', 'header');
+
+  $settings = $field['settings'];
+
+  $types = node_type_get_types();
+  $options = array();
+  foreach ($types as $key => $type) {
+    $options[$key] = $type->name;
+  }
+
+  $form['available_values'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Available content types'),
+    '#options' => $options,
+    '#default_value' => $settings['available_values'],
+    '#field_has_data' => $has_data,
+    '#field' => $field,
+    '#field_type' => $field['type'],
+  );
+
+  $form['fixed_values'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Fixed content types'),
+    '#options' => $options,
+    '#default_value' => $settings['fixed_values'],
+    '#field_has_data' => $has_data,
+    '#field' => $field,
+    '#field_type' => $field['type'],
+  );
+
+  return $form;
+}
+
+/**
+ * Define custom presave behavior for this module's field types.
+ *
+ * Make changes or additions to field values by altering the $items parameter by
+ * reference. There is no return value.
+ *
+ * @param $entity_type
+ *   The type of $entity.
+ * @param $entity
+ *   The entity for the operation.
+ * @param $field
+ *   The field structure for the operation.
+ * @param $instance
+ *   The instance structure for $field on $entity's bundle.
+ * @param $langcode
+ *   The language associated with $items.
+ * @param $items
+ *   $entity->{$field['field_name']}[$langcode], or an empty array if unset.
+ */
+function field_content_types_field_presave($entity_type, $entity, $field, $instance, $langcode, &$items) {
+  foreach ($field['settings']['fixed_values'] as $key => $value) {
+    if ($value) {
+      $items[] = array('value' => $key);
+    }
+  }
+}
+
+/**
+ * Implements hook_field_update_field().
+ */
+function field_content_types_field_update_field($field, $prior_field, $has_data) {
+  drupal_static_reset('field_content_types_available_values');
+}
+
+/**
+ * Returns the array of allowed values for a field.
+ *
+ * @param $field
+ *   The field definition.
+ *
+ * @return
+ *   The array of allowed values. Keys of the array are the raw stored values
+ *   (number or text), values of the array are the display labels.
+ */
+function field_content_types_available_values($field) {
+  $available_values = &drupal_static(__FUNCTION__, array());
+  if (!isset($available_values[$field['id']])) {
+    $content_types = node_type_get_types();
+
+    $av_settings = $field['settings']['available_values'];
+    $fv_settings = $field['settings']['fixed_values'];
+    $available_values[$field['id']] = array();
+    foreach ($content_types as $key => $type) {
+      if ((isset($av_settings[$key]) && $av_settings[$key])
+        || (isset($fv_settings[$key]) && $fv_settings[$key])) {
+        $available_values[$field['id']][$key] = $type->name;
+      }
+    }
+  }
+
+  return $available_values[$field['id']];
+}
+
+/**
+ * Implements hook_field_validate().
+ *
+ * Possible error codes:
+ * - 'field_content_types_illegal_value': The value is not part of the list of allowed values.
+ */
+function field_content_types_field_validate($entity_type, $entity, $field, $instance, $langcode, $items, &$errors) {
+  $available_values = field_content_types_available_values($field);
+  foreach ($items as $delta => $item) {
+    if (!empty($item['value'])) {
+      if (!empty($available_values) && !isset($available_values[$item['value']])) {
+        $errors[$field['field_name']][$langcode][$delta][] = array(
+          'error' => 'field_content_types_illegal_value',
+          'message' => t('%name: illegal value.', array('%name' => t($instance['label']))),
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_field_is_empty().
+ */
+function field_content_types_field_is_empty($item, $field) {
+  return (empty($item['value']) && (string) $item['value'] !== '0');
+}
+
+/**
+ * Implements hook_field_widget_info_alter().
+ *
+ * The module does not implement widgets of its own, but reuses the
+ * widgets defined in widget_content_types.module.
+ *
+ * @see field_content_types_widget_content_types_list()
+ */
+function field_content_types_field_widget_info_alter(&$info) {
+  $info['widget_content_types']['field types'] = array_merge(
+    $info['widget_content_types']['field types'],
+    array('field_content_types')
+  );
+}
+
+/**
+ * Implements hook_widget_content_types_list().
+ */
+function field_content_types_widget_content_types_list($field) {
+  return field_content_types_available_values($field);
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function field_content_types_field_formatter_info() {
+  return array(
+    'field_content_types_default' => array(
+      'label' => t('Default'),
+      'field types' => array('field_content_types'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function field_content_types_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $element = array();
+
+  switch ($display['type']) {
+    case 'field_content_types_default':
+      $available_values = field_content_types_available_values($field);
+      foreach ($items as $delta => $item) {
+        if (isset($available_values[$item['value']])) {
+          $element[$delta] = array('#markup' => field_filter_xss($available_values[$item['value']]));
+        }
+      }
+      break;
+  }
+
+  return $element;
+}
+
+/**
+ * Expose Field API widget types.
+ *
+ * Widgets are Form API elements with additional processing capabilities.
+ * Widget hooks are typically called by the Field Attach API during the
+ * creation of the field form structure with field_attach_form().
+ *
+ * @see hook_field_widget_info_alter()
+ * @see hook_field_widget_form()
+ * @see hook_field_widget_error()
+ *
+ * @return
+ *   An array describing the widget types implemented by the module.
+ *   The keys are widget type names. To avoid name clashes, widget type
+ *   names should be prefixed with the name of the module that exposes them.
+ *   The values are arrays describing the widget type, with the following
+ *   key/value pairs:
+ *   - label: The human-readable name of the widget type.
+ *   - description: A short description for the widget type.
+ *   - field types: An array of field types the widget supports.
+ *   - settings: An array whose keys are the names of the settings available
+ *     for the widget type, and whose values are the default values for those
+ *     settings.
+ *   - behaviors: (optional) An array describing behaviors of the widget, with
+ *     the following elements:
+ *     - multiple values: One of the following constants:
+ *       - FIELD_BEHAVIOR_DEFAULT: (default) If the widget allows the input of
+ *         one single field value (most common case). The widget will be
+ *         repeated for each value input.
+ *       - FIELD_BEHAVIOR_CUSTOM: If one single copy of the widget can receive
+ *         several field values. Examples: checkboxes, multiple select,
+ *         comma-separated textfield.
+ *     - default value: One of the following constants:
+ *       - FIELD_BEHAVIOR_DEFAULT: (default) If the widget accepts default
+ *         values.
+ *       - FIELD_BEHAVIOR_NONE: if the widget does not support default values.
+ */
+function field_content_types_field_widget_info() {
+    return array(
+    'widget_content_types' => array(
+      'label' => t('Content types'),
+      'field types' => array(),
+      'behaviors' => array(
+        'multiple values' => FIELD_BEHAVIOR_CUSTOM,
+      ),
+    ),
+  );
+}
+
+/**
+ * Return the form for a single field widget.
+ *
+ * Field widget form elements should be based on the passed in $element, which
+ * contains the base form element properties derived from the field
+ * configuration.
+ *
+ * Field API will set the weight, field name and delta values for each form
+ * element. If there are multiple values for this field, the Field API will
+ * invoke this hook as many times as needed.
+ *
+ * Note that, depending on the context in which the widget is being included
+ * (regular entity form, field configuration form, advanced search form...),
+ * the values for $field and $instance might be different from the "official"
+ * definitions returned by field_info_field() and field_info_instance().
+ * Examples: mono-value widget even if the field is multi-valued, non-required
+ * widget even if the field is 'required'...
+ *
+ * Therefore, the FAPI element callbacks (such as #process, #element_validate,
+ * #value_callback...) used by the widget cannot use the field_info_field()
+ * or field_info_instance() functions to retrieve the $field or $instance
+ * definitions they should operate on. The field_widget_field() and
+ * field_widget_instance() functions should be used instead to fetch the
+ * current working definitions from $form_state, where Field API stores them.
+ *
+ * Alternatively, hook_field_widget_form() can extract the needed specific
+ * properties from $field and $instance and set them as ad-hoc
+ * $element['#custom'] properties, for later use by its element callbacks.
+ *
+ * @see field_widget_field()
+ * @see field_widget_instance()
+ *
+ * @param $form
+ *   The form structure where widgets are being attached to. This might be a
+ *   full form structure, or a sub-element of a larger form.
+ * @param $form_state
+ *   An associative array containing the current state of the form.
+ * @param $field
+ *   The field structure.
+ * @param $instance
+ *   The field instance.
+ * @param $langcode
+ *   The language associated with $items.
+ * @param $items
+ *   Array of default values for this field.
+ * @param $delta
+ *   The order of this item in the array of subelements (0, 1, 2, etc).
+ * @param $element
+ *   A form element array containing basic properties for the widget:
+ *   - #entity_type: The name of the entity the field is attached to.
+ *   - #bundle: The name of the field bundle the field is contained in.
+ *   - #field_name: The name of the field.
+ *   - #language: The language the field is being edited in.
+ *   - #field_parents: The 'parents' space for the field in the form. Most
+ *       widgets can simply overlook this property. This identifies the
+ *       location where the field values are placed within
+ *       $form_state['values'], and is used to access processing information
+ *       for the field through the field_form_get_state() and
+ *       field_form_set_state() functions.
+ *   - #columns: A list of field storage columns of the field.
+ *   - #title: The sanitized element label for the field instance, ready for
+ *     output.
+ *   - #description: The sanitized element description for the field instance,
+ *     ready for output.
+ *   - #required: A Boolean indicating whether the element value is required;
+ *     for required multiple value fields, only the first widget's values are
+ *     required.
+ *   - #delta: The order of this item in the array of subelements; see $delta
+ *     above.
+ *
+ * @return
+ *   The form elements for a single widget for this field.
+ */
+function field_content_types_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $delta, $element) {
+  // Abstract over the actual field columns, to allow different field types to
+  // reuse those widgets.
+  $value_key = key($field['columns']);
+
+  $multiple = $field['cardinality'] > 1 || $field['cardinality'] == FIELD_CARDINALITY_UNLIMITED;
+  $required = $element['#required'];
+  $has_value = isset($items[0][$value_key]);
+  $properties = _field_content_types_properties($multiple, $required, $has_value);
+
+  // Prepare the list of options.
+  $options = _field_content_types_get_options($field, $instance, $properties);
+
+  // Put current field values in shape.
+  $default_value = _field_content_types_storage_to_form($items, $options, $value_key, $properties);
+
+  // If required and there is one single option, preselect it.
+  if ($required && count($options) == 1) {
+    reset($options);
+    $default_value = array(key($options));
+  }
+  $element += array(
+    '#type' => $multiple ? 'checkboxes' : 'radios',
+    // Radio buttons need a scalar value.
+    '#default_value' => $multiple ? $default_value : reset($default_value),
+    '#options' => $options,
+    '#value_key' => $value_key,
+    '#element_validate' => array('field_content_types_field_widget_validate'),
+    '#properties' => $properties,
+    '#after_build' => array('_field_content_types_disable_options'),
+  );
+
+  return $element;
+}
+
+/**
+ * Flag a field-level validation error.
+ *
+ * @param $element
+ *   An array containing the form element for the widget. The error needs to be
+ *   flagged on the right sub-element, according to the widget's internal
+ *   structure.
+ * @param $error
+ *   An associative array with the following key-value pairs, as returned by
+ *   hook_field_validate():
+ *   - error: the error code. Complex widgets might need to report different
+ *     errors to different form elements inside the widget.
+ *   - message: the human readable message to be displayed.
+ * @param $form
+ *   The form structure where field elements are attached to. This might be a
+ *   full form structure, or a sub-element of a larger form.
+ * @param $form_state
+ *   An associative array containing the current state of the form.
+ */
+function field_content_types_field_widget_error($element, $error, $form, &$form_state) {
+  form_error($element, $error['message']);
+}
+
+/**
+ * Form element validation handler for options element.
+ */
+function field_content_types_field_widget_validate($element, &$form_state) {
+  if ($element['#required'] && $element['#value'] == '_none') {
+    form_error($element, t('!name field is required.', array('!name' => $element['#title'])));
+  }
+  // Transpose selections from field => delta to delta => field, turning
+  // multiple selected options into multiple parent elements.
+  $items = _field_content_types_form_to_storage($element);
+  form_set_value($element, $items, $form_state);
+}
+
+/**
+ * Describes the preparation steps required by each widget.
+ */
+function _field_content_types_properties($multiple, $required, $has_value) {
+  $base = array(
+    'filter_xss' => FALSE,
+    'strip_tags' => FALSE,
+    'empty_option' => FALSE,
+    'optgroups' => FALSE,
+  );
+
+  $properties = array(
+    'filter_xss' => TRUE,
+  );
+  // Add a 'none' option for non-required radio buttons.
+  if (!$required && !$multiple) {
+    $properties['empty_option'] = 'field_content_types_none';
+  }
+
+  return $properties + $base;
+}
+
+/**
+ * Collects the options for a field.
+ */
+function _field_content_types_get_options($field, $instance, $properties) {
+  // Get the list of options.
+  $options = (array) module_invoke($field['module'], 'widget_content_types_list', $field);
+
+  // Sanitize the options.
+  _field_content_types_prepare_options($options, $properties);
+
+  if (!$properties['optgroups']) {
+    $options = field_content_types_array_flatten($options);
+  }
+
+  if ($properties['empty_option']) {
+    $options = array('_none' => t('N/A')) + $options;
+  }
+
+  return $options;
+}
+
+/**
+ * Sanitizes the options.
+ *
+ * The function is recursive to support optgroups.
+ */
+function _field_content_types_prepare_options(&$options, $properties) {
+  foreach ($options as $value => $label) {
+    // Recurse for optgroups.
+    if (is_array($label)) {
+      _field_content_types_prepare_options($options[$value], $properties);
+    }
+    else {
+      if ($properties['strip_tags']) {
+        $options[$value] = strip_tags($label);
+      }
+      if ($properties['filter_xss']) {
+        $options[$value] = field_filter_xss($label);
+      }
+    }
+  }
+}
+
+/**
+ * Transforms stored field values into the format the widgets need.
+ */
+function _field_content_types_storage_to_form($items, $options, $column, $properties) {
+  $items_transposed = field_content_types_array_transpose($items);
+  $values = (isset($items_transposed[$column]) && is_array($items_transposed[$column])) ? $items_transposed[$column] : array();
+
+  // Discard values that are not in the current list of options. Flatten the
+  // array if needed.
+  if ($properties['optgroups']) {
+    $options = field_content_types_array_flatten($options);
+  }
+  $values = array_values(array_intersect($values, array_keys($options)));
+  return $values;
+}
+
+/**
+ * Transforms submitted form values into field storage format.
+ */
+function _field_content_types_form_to_storage($element) {
+  $values = array_values((array) $element['#value']);
+  $properties = $element['#properties'];
+
+  // Filter out the 'none' option. Use a strict comparison, because
+  // 0 == 'any string'.
+  if ($properties['empty_option']) {
+    $index = array_search('_none', $values, TRUE);
+    if ($index !== FALSE) {
+      unset($values[$index]);
+    }
+  }
+
+  // Make sure we populate at least an empty value.
+  if (empty($values)) {
+    $values = array(NULL);
+  }
+
+  $result = field_content_types_array_transpose(array($element['#value_key'] => $values));
+  return $result;
+}
+
+/**
+ * Disable fixed content type checkboxes
+ */
+function _field_content_types_disable_options($element) {
+  $field = field_info_field($element['#field_name']);
+  if ($field['cardinality'] != 1) {
+    foreach ($field['settings']['fixed_values'] as $key => $type) {
+      if ($type) {
+        $element[$key]['#checked'] = TRUE;
+        $element[$key]['#attributes']['disabled'] = TRUE;
+      }
+    }
+  }
+  return $element;
+}
+
+/**
+ * Manipulates a 2D array to reverse rows and columns.
+ *
+ * The default data storage for fields is delta first, column names second.
+ * This is sometimes inconvenient for field modules, so this function can be
+ * used to present the data in an alternate format.
+ *
+ * @param $array
+ *   The array to be transposed. It must be at least two-dimensional, and
+ *   the subarrays must all have the same keys or behavior is undefined.
+ * @return
+ *   The transposed array.
+ */
+function field_content_types_array_transpose($array) {
+  $result = array();
+  if (is_array($array)) {
+    foreach ($array as $key1 => $value1) {
+      if (is_array($value1)) {
+        foreach ($value1 as $key2 => $value2) {
+          if (!isset($result[$key2])) {
+            $result[$key2] = array();
+          }
+          $result[$key2][$key1] = $value2;
+        }
+      }
+    }
+  }
+  return $result;
+}
+
+/**
+ * Flattens an array of allowed values.
+ *
+ * @param $array
+ *   A single or multidimensional array.
+ * @return
+ *   A flattened array.
+ */
+function field_content_types_array_flatten($array) {
+  $result = array();
+  if (is_array($array)) {
+    foreach ($array as $key => $value) {
+      if (is_array($value)) {
+        $result += field_content_types_array_flatten($value);
+      }
+      else {
+        $result[$key] = $value;
+      }
+    }
+  }
+  return $result;
+}
