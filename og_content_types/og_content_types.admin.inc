@@ -20,7 +20,7 @@ function og_content_types_admin_form($form, &$form_state) {
       $options = array();
       $fields = field_info_instances('node', $key);
       foreach ($fields as $name => $field) {
-        if ($field['widget']['module'] == 'widget_content_types') {
+        if ($field['widget']['module'] == 'field_content_types') {
           $options[$name] = $field['label'];
         }
       }

@@ -36,8 +36,7 @@ function og_content_types_menu() {
  * Implement hook_form_alter().
  */
 function og_content_types_form_alter(&$form, &$form_state, $form_id) {
-  if (isset($form['#node']) && $form['#node']->type . '_node_form' == $form_id
-    && og_is_group_content_type('node', $form['#node']->type)) {
+  if (isset($form['#node']->type) && og_is_group_content_type('node', $form['#node']->type)) {
 
     $field =& $form['group_audience'][$form['group_audience']['#language']];
 
@@ -55,6 +54,7 @@ function og_content_types_form_alter(&$form, &$form_state, $form_id) {
         }
       }
     }
+
   }
 }
 
@@ -62,26 +62,35 @@ function og_content_types_form_alter(&$form, &$form_state, $form_id) {
  * Check if target type of node could be related to certain group
  */
 function og_content_types_group_node($gid, $content_type) {
+  $group_nodes = &drupal_static(__FUNCTION__, array());
+  $name = $gid .'_'. $content_type;
   // try to get node id from group id
-  if ($node = db_query_range(implode(' ', array(
-    'SELECT n.nid, n.type FROM {og} o, {node} n',
-    'WHERE n.nid = o.etid AND o.gid = :gid'
-  )), 0, 1, array(':gid' => $gid))->fetchObject()) {
-    // try to get field name
-    if ($field = variable_get('og_content_types_'. $node->type, 0)) {
-      // if node type could be created under this group return TRUE
-      return db_query(implode(' ', array(
-        'SELECT COUNT(*) FROM {field_data_'. $field .'}',
-        'WHERE entity_id = :nid AND '. $field .'_value = :type'
-      )), array(
-        ':nid' => $node->nid, ':type' => $content_type,
-      ))->fetchField()
-        ? TRUE
-        : FALSE;
+  if (!isset($group_nodes[$name])) {
+    if ($node = db_query_range(implode(' ', array(
+      'SELECT n.nid, n.type FROM {og} o, {node} n',
+      'WHERE n.nid = o.etid AND o.gid = :gid'
+    )), 0, 1, array(':gid' => $gid))->fetchObject()) {
+      // try to get field name
+      if ($field = variable_get('og_content_types_'. $node->type, 0)) {
+        // if node type could be created under this group return TRUE
+        $group_nodes[$name] = db_query(implode(' ', array(
+          'SELECT COUNT(*) FROM {field_data_'. $field .'}',
+          'WHERE entity_id = :nid AND '. $field .'_value = :type'
+        )), array(
+          ':nid' => $node->nid, ':type' => $content_type,
+        ))->fetchField()
+          ? TRUE
+          : FALSE;
+
+        // cache it
+      }
     }
+    $group_nodes[$name] = isset($group_nodes[$name])
+      ? $group_nodes[$name]
+      : TRUE;
   }
-  // FALSE :-|
-  return TRUE;
+
+  return $group_nodes[$name];
 }
 
 /**
@@ -122,7 +131,13 @@ function og_content_types_menu_access() {
   $node_type = str_replace('-', '_', $args[1]);
 
   if (empty($access_callback) || call_user_func_array($access_callback, $args)) {
-    if (og_is_group_content_type('node', $node_type) && $groups = db_query(implode(' ', array(
+
+    if (variable_get('og_content_types_'. $node_type, 0)
+      && og_is_group_type('node', $node_type)) {
+      return TRUE;
+    }
+    if (og_is_group_content_type('node', $node_type)
+      && $groups = db_query(implode(' ', array(
       "SELECT og.*",
       "FROM {og} og, {field_data_group_audience} ga",
       "WHERE ga.group_audience_gid = og.gid",
@@ -135,7 +150,6 @@ function og_content_types_menu_access() {
         }
       }
     }
-    return TRUE;
   }
   return FALSE;
 }
